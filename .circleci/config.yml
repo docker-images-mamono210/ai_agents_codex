@@ -1,0 +1,66 @@
+---
+version: 2.1
+
+executors:
+  detect-secrets:
+    docker:
+      - image: cimg/python:3.14
+    resource_class: small
+
+orbs:
+  yamllint: orbss/yamllint@1.1.5
+  trailing-whitespace: orbss/trailing-whitespace@1.0.0
+
+
+jobs:
+  detect-secrets:
+    executor: detect-secrets
+    steps:
+      - checkout
+      - run:
+          name: Install detect-secrets
+          command: |
+            pip install detect-secrets jq
+      - run:
+          name: Run detect-secrets scan
+          command: |
+            detect-secrets scan --disable-plugin KeywordDetector \
+            | jq .results > results.json
+      - run:
+          name: Check for vulnerabilities
+          command: |
+            if [ "$(cat results.json | wc -w)" -gt 2 ]; then
+              echo "vulnerability was found"
+              detect-secrets scan | jq .results -C
+              exit 1
+            fi
+      - run:
+          name: Show detect-secrets version
+          command: |
+            pip list | grep detect-secrets \
+            | GREP_COLORS='mt=01;34' egrep --color=always '[[:digit:]]' \
+            | GREP_COLORS='mt=01;34' egrep --color=always '\.' \
+            | GREP_COLORS='mt=01;33' egrep --color=always 'detect-secrets.* '
+  yamllint:
+    executor: yamllint/default
+    steps:
+      - checkout
+      - yamllint/install
+      - yamllint/execute
+  trailing-whitespace:
+    executor: trailing-whitespace/default
+    steps:
+      - checkout
+      - trailing-whitespace/execute
+
+workflows:
+  version: 2
+  lint:
+    jobs:
+      - trailing-whitespace
+      - yamllint:
+          requires:
+            - trailing-whitespace
+      - detect-secrets:
+          requires:
+            - yamllint
