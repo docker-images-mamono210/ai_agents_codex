@@ -11,7 +11,6 @@ orbs:
   yamllint: orbss/yamllint@1.1.5
   trailing-whitespace: orbss/trailing-whitespace@1.0.0
 
-
 jobs:
   detect-secrets:
     executor: detect-secrets
@@ -41,21 +40,116 @@ jobs:
             | GREP_COLORS='mt=01;34' egrep --color=always '[[:digit:]]' \
             | GREP_COLORS='mt=01;34' egrep --color=always '\.' \
             | GREP_COLORS='mt=01;33' egrep --color=always 'detect-secrets.* '
+
   yamllint:
     executor: yamllint/default
     steps:
       - checkout
       - yamllint/install
       - yamllint/execute
+
   trailing-whitespace:
     executor: trailing-whitespace/default
     steps:
       - checkout
       - trailing-whitespace/execute
 
+  docker-build-and-test:
+    machine:
+      image: ubuntu-2604:2026.05.1
+    resource_class: medium
+    steps:
+      - checkout
+      - run:
+          name: Build Codex image
+          command: |
+            set -euo pipefail
+            test "$(uname -m)" = "x86_64"
+            docker build --platform linux/amd64 --tag codex:test .
+            IMAGE_ID="$(docker image inspect codex:test --format '{{.Id}}')"
+            SOURCE_COMMIT="${CIRCLE_SHA1}"
+            printf 'export IMAGE_ID=%q\n' "$IMAGE_ID" >> "$BASH_ENV"
+            echo "source_commit=${SOURCE_COMMIT}"
+            echo "image_id=${IMAGE_ID}"
+      - run:
+          name: Verify image metadata
+          command: |
+            set -euo pipefail
+            source "$BASH_ENV"
+            PLATFORM="$(docker image inspect "$IMAGE_ID" --format '{{.Os}}/{{.Architecture}}')"
+            ENTRYPOINT="$(docker image inspect "$IMAGE_ID" --format '{{json .Config.Entrypoint}}')"
+            CMD="$(docker image inspect "$IMAGE_ID" --format '{{json .Config.Cmd}}')"
+            USER_VALUE="$(docker image inspect "$IMAGE_ID" --format '{{.Config.User}}')"
+            WORKDIR="$(docker image inspect "$IMAGE_ID" --format '{{.Config.WorkingDir}}')"
+            test "$PLATFORM" = "linux/amd64"
+            test "$ENTRYPOINT" = "null"
+            test "$CMD" = '["/bin/bash"]'
+            test "$USER_VALUE" = "1000:1000"
+            test "$WORKDIR" = "/workspace"
+            echo "platform=${PLATFORM}"
+            echo "entrypoint=${ENTRYPOINT}"
+            echo "cmd=${CMD}"
+            echo "user=${USER_VALUE}"
+            echo "workdir=${WORKDIR}"
+      - run:
+          name: Install container-structure-test
+          command: |
+            set -euo pipefail
+            CST_VERSION="1.22.1"
+            CST_SHA256="fa35e89512a8978585f76cf41397956d2e3a30c62c2ad3fb857b1597074d14ca"
+            CST_BIN="/tmp/container-structure-test"
+            curl --fail --location --silent --show-error --retry 3 \
+              "https://github.com/GoogleContainerTools/container-structure-test/releases/download/v${CST_VERSION}/container-structure-test-linux-amd64" \
+              --output "$CST_BIN"
+            printf '%s  %s\n' "$CST_SHA256" "$CST_BIN" | sha256sum -c -
+            chmod +x "$CST_BIN"
+            printf 'export CST_BIN=%q\n' "$CST_BIN" >> "$BASH_ENV"
+      - run:
+          name: Run container structure tests
+          command: |
+            set -euo pipefail
+            source "$BASH_ENV"
+            "$CST_BIN" test \
+              --image "$IMAGE_ID" \
+              --config container-structure-test.yaml \
+              --platform linux/amd64
+      - run:
+          name: Run offline bind mount verification
+          command: |
+            set -euo pipefail
+            source "$BASH_ENV"
+            FIXTURE="$(mktemp -d)"
+            trap 'sudo rm -rf "$FIXTURE"' EXIT
+            git -C "$FIXTURE" init --quiet
+            sudo chown -R 1000:1000 "$FIXTURE"
+            docker run --rm \
+              --network none \
+              --cap-drop ALL \
+              --security-opt no-new-privileges \
+              --volume "$FIXTURE:/workspace:rw" \
+              "$IMAGE_ID" \
+              /bin/bash -c '
+                set -euo pipefail
+                test "$(stat -c "%u:%g" /workspace)" = "1000:1000"
+                test "$(stat -c "%u:%g" /workspace/.git)" = "1000:1000"
+                test -z "$(git -C /workspace status --porcelain)"
+                test -z "$(git config --show-origin --get-all safe.directory || true)"
+                test_file="/workspace/.codex-write-test"
+                printf "ok" > "$test_file"
+                test "$(cat "$test_file")" = "ok"
+                rm "$test_file"
+                version_output="$(codex --version 2>/tmp/codex-version.err)"
+                test "$version_output" = "codex-cli 0.159.2"
+                ! grep -F "could not create PATH aliases" /tmp/codex-version.err
+                /opt/codex/bin/codex-code-mode-host --help > /tmp/code-mode-help
+                grep -F -- "--listen" /tmp/code-mode-help
+                /opt/codex/codex-path/rg --version | grep -E "^ripgrep [0-9]+\\."
+              '
+            echo "offline_bind_mount_verification=PASS"
+
 workflows:
   version: 2
-  lint:
+  build-and-test:
     jobs:
       - trailing-whitespace
       - yamllint:
@@ -64,3 +158,6 @@ workflows:
       - detect-secrets:
           requires:
             - yamllint
+      - docker-build-and-test:
+          requires:
+            - detect-secrets

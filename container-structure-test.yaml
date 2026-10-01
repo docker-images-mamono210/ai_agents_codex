@@ -1,0 +1,212 @@
+---
+schemaVersion: "2.0.0"
+
+commandTests:
+  - name: Codex is first on PATH
+    command: /usr/bin/env
+    args:
+      - "HOME=$HOME"
+      - "PATH=$PATH"
+      - /bin/bash
+      - -c
+      - command -v codex
+    expectedOutput:
+      - '/opt/codex/bin/codex'
+    exitCode: 0
+
+  - name: Codex version and PATH aliases
+    command: /usr/bin/env
+    args:
+      - "HOME=$HOME"
+      - "PATH=$PATH"
+      - /opt/codex/bin/codex
+      - --version
+    expectedOutput:
+      - 'codex-cli 0\.159\.2'
+    excludedError:
+      - 'could not create PATH aliases'
+    exitCode: 0
+
+  - name: Code Mode host starts
+    command: /opt/codex/bin/codex-code-mode-host
+    args:
+      - --help
+    expectedOutput:
+      - '--listen'
+    exitCode: 0
+
+  - name: Packaged ripgrep starts
+    command: /opt/codex/codex-path/rg
+    args:
+      - --version
+    expectedOutput:
+      - 'ripgrep [0-9]+\.'
+    exitCode: 0
+
+  - name: Entire Codex package is root owned
+    command: bash
+    args:
+      - -c
+      - 'find /opt/codex \( ! -uid 0 -o ! -gid 0 \) -print'
+    excludedOutput:
+      - '.+'
+    exitCode: 0
+
+  - name: Codex binary is not writable by the default user
+    command: bash
+    args:
+      - -c
+      - 'test -f /opt/codex/bin/codex && test ! -w /opt/codex/bin/codex'
+    exitCode: 0
+
+  - name: Codex package is not writable by the default user
+    command: find
+    args:
+      - /opt/codex
+      - -writable
+      - -print
+    excludedOutput:
+      - '.+'
+    exitCode: 0
+
+  - name: Git is available
+    command: git
+    args:
+      - --version
+    expectedOutput:
+      - 'git version '
+    exitCode: 0
+
+  - name: Bash is available
+    command: bash
+    args:
+      - --version
+    expectedOutput:
+      - 'GNU bash, version '
+    exitCode: 0
+
+  - name: Default user identity
+    command: bash
+    args:
+      - -c
+      - 'test "$(id -u)" = 1000 && test "$(id -g)" = 1000 && test "$(id -un)" = codex'
+    exitCode: 0
+
+  - name: sudo command is absent
+    command: bash
+    args:
+      - -c
+      - command -v sudo
+    excludedOutput:
+      - '.+'
+    exitCode: 1
+
+  - name: sudo package is absent
+    command: dpkg-query
+    args:
+      - --show
+      - sudo
+    excludedOutput:
+      - '.+'
+    exitCode: 1
+
+  - name: Git safe.directory override is absent
+    command: git
+    args:
+      - config
+      - --show-origin
+      - --get-all
+      - safe.directory
+    excludedOutput:
+      - '.+'
+    exitCode: 1
+
+  - name: HOME and workspace are writable
+    command: /usr/bin/env
+    args:
+      - "HOME=$HOME"
+      - "PATH=$PATH"
+      - /bin/bash
+      - -c
+      - >-
+        set -euo pipefail;
+        test "$(printenv HOME)" = "/home/codex";
+        printf 'home' > "$(printenv HOME)/.codex-write-test";
+        grep -qx 'home' "$(printenv HOME)/.codex-write-test";
+        rm "$(printenv HOME)/.codex-write-test";
+        printf 'workspace' > /workspace/.codex-write-test;
+        grep -qx 'workspace' /workspace/.codex-write-test;
+        rm /workspace/.codex-write-test
+    exitCode: 0
+
+fileExistenceTests:
+  - name: Codex package manifest exists
+    path: /opt/codex/codex-package.json
+    shouldExist: true
+    uid: 0
+    gid: 0
+
+  - name: Codex executable exists
+    path: /opt/codex/bin/codex
+    shouldExist: true
+    uid: 0
+    gid: 0
+    isExecutableBy: any
+
+  - name: Code Mode host exists
+    path: /opt/codex/bin/codex-code-mode-host
+    shouldExist: true
+    uid: 0
+    gid: 0
+    isExecutableBy: any
+
+  - name: Packaged ripgrep exists
+    path: /opt/codex/codex-path/rg
+    shouldExist: true
+    uid: 0
+    gid: 0
+    isExecutableBy: any
+
+  - name: Packaged bwrap exists
+    path: /opt/codex/codex-resources/bwrap
+    shouldExist: true
+    uid: 0
+    gid: 0
+    isExecutableBy: any
+
+  - name: CODEX_HOME exists and is private to the default user
+    path: /home/codex/.codex
+    shouldExist: true
+    permissions: drwx------
+    uid: 1000
+    gid: 1000
+
+  - name: Workspace exists
+    path: /workspace
+    shouldExist: true
+    uid: 1000
+    gid: 1000
+
+  - name: Personal SSH directory is absent
+    path: /home/codex/.ssh
+    shouldExist: false
+
+  - name: Codex CLI auth file is absent
+    path: /home/codex/.codex/auth.json
+    shouldExist: false
+
+  - name: Codex MCP credentials file is absent
+    path: /home/codex/.codex/.credentials.json
+    shouldExist: false
+
+metadataTest:
+  envVars:
+    - key: HOME
+      value: /home/codex
+    - key: PATH
+      value: /opt/codex/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+  entrypoint: []
+  cmd:
+    - /bin/bash
+  workdir: /workspace
+  user: 1000:1000
