@@ -143,9 +143,27 @@ jobs:
                 ! grep -F "could not create PATH aliases" /tmp/codex-version.err
                 /opt/codex/bin/codex-code-mode-host --help > /tmp/code-mode-help
                 grep -F -- "--listen" /tmp/code-mode-help
-                /opt/codex/codex-path/rg --version | grep -E "^ripgrep [0-9]+\\."
+                /opt/codex/codex-path/rg --version | grep -E "^ripgrep [0-9]+\."
               '
             echo "offline_bind_mount_verification=PASS"
+
+  # BEGIN #5465 temporary deny probe.
+  # Keep this only on the temporary probe branch. Remove it before main integration.
+  context-deny-probe:
+    executor: detect-secrets
+    steps:
+      - run:
+          name: Fail if restricted publish context is injected
+          command: |
+            set -euo pipefail
+            test "${CIRCLE_BRANCH:-}" = "5465-context-deny-probe"
+            if [ -z "${GHCR_PUBLISH_PROBE:-}" ]; then
+              echo "SECURITY_CONTROL_FAILURE=probe_variable_missing"
+              exit 87
+            fi
+            echo "SECURITY_CONTROL_FAILURE=publish_context_accessible_on_denied_branch"
+            exit 88
+  # END #5465 temporary deny probe.
 
 workflows:
   version: 2
@@ -161,3 +179,14 @@ workflows:
       - docker-build-and-test:
           requires:
             - detect-secrets
+
+  # BEGIN #5465 temporary deny probe.
+  # Expected result on 5465-context-deny-probe:
+  # CircleCI rejects the job as Unauthorized before any step starts.
+  phase5465-context-deny-probe:
+    jobs:
+      - context-deny-probe:
+          context:
+            - codex-ghcr-publish
+          filters: pipeline.git.branch == "5465-context-deny-probe"
+  # END #5465 temporary deny probe.
