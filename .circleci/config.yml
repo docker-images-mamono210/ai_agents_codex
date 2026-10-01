@@ -147,8 +147,6 @@ jobs:
               '
             echo "offline_bind_mount_verification=PASS"
 
-  # BEGIN #5465 temporary deny probe.
-  # Keep this only on the temporary probe branch. Remove it before main integration.
   context-deny-probe:
     executor: detect-secrets
     steps:
@@ -163,7 +161,6 @@ jobs:
             fi
             echo "SECURITY_CONTROL_FAILURE=publish_context_accessible_on_denied_branch"
             exit 88
-  # END #5465 temporary deny probe.
 
 workflows:
   version: 2
@@ -180,9 +177,6 @@ workflows:
           requires:
             - detect-secrets
 
-  # BEGIN #5465 temporary deny probe.
-  # Expected result on 5465-context-deny-probe:
-  # CircleCI rejects the job as Unauthorized before any step starts.
   phase5465-context-deny-probe:
     jobs:
       - context-deny-probe:
@@ -190,4 +184,3 @@ workflows:
             - codex-ghcr-publish
           filters: pipeline.git.branch == "5465-context-deny-probe"
 
-  # END #5465 temporary deny probe.

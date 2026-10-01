@@ -232,18 +232,12 @@ CircleCI Organization Administrator は Context restriction の trusted bypass a
 
 ## 13. Deny probe の後片付け
 
-deny probe が完了したら、`main` へ統合する前に `.circleci/config.yml` から次の2ブロックを削除します。
-
-```text
-# BEGIN #5465 temporary deny probe.
-...
-# END #5465 temporary deny probe.
-```
-
-対象は:
+deny probe が完了したら、`main` へ統合する前に `.circleci/config.yml` から次の2定義を削除します。
 
 - `jobs.context-deny-probe`
 - `workflows.phase5465-context-deny-probe`
+
+YAML 内のコメントマーカーには依存せず、上記の job 名・workflow 名を削除対象の正本とします。
 
 削除後、通常の `main` CI 設定が #5461 完了時点の挙動を維持することを確認します。
 
