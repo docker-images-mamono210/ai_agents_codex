@@ -152,7 +152,7 @@ jobs:
     steps:
       - run:
           name: Fail if restricted publish context is injected
-          command: |
+          command: |  # pragma: allowlist secret
             set -euo pipefail
             test "${CIRCLE_BRANCH:-}" = "5465-context-deny-probe"
             if [ -z "${GHCR_PUBLISH_PROBE:-}" ]; then
